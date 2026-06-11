@@ -123,6 +123,7 @@ autoresearch + SkillOpt 场景自适应。
 ### 评分公式
 
 ```
+<<<<<<< Updated upstream
 确定性维度分（dim1/4/7/9）= 规则引擎计算值，标注 [deterministic]
 LLM 维度分（dim2/3/5/6/8）= 1~10，LLM judge 独立打分
 dim10 原始分 = 100 − P0×30 − P1×5，归一化 /10 映射到 1~10
@@ -133,6 +134,41 @@ dim8 得分 = Σ(子维度分 × 权重) / 18
   - Accuracy（权重 8）：with_skill vs baseline 任务完成率对比
   - Safety（权重 5）：副作用审计，命中即冻结
   - Compliance（权重 5）：格式规范 + 输出中立 + 无幻觉路径
+=======
+                          ┌──────────────────────────────────────┐
+                          │      鲁班.Skill 技能自进化调度器       │
+                          │   事件驱动 + 定时轮询 + 按需触发       │
+                          └────────────────┬─────────────────────┘
+                                           │
+              ┌────────────────────────────┼────────────────────────────┐
+              │                            │                            │
+    ┌─────────┴──────────┐      ┌─────────┴──────────┐      ┌─────────┴──────────┐
+    │   模块层（巡检）     │      │  核心引擎（评分+修复）│      │   守卫层（验证）     │
+    │ EvoSkill 失败驱动   │      │                    │      │  MUSE 回归测试      │
+    │ SkillOps 定期体检   │ 写入  │  Phase 0  初始化    │ 编辑  │  修改后自动触发      │
+    │ CASCADE  知识更新   │───→  │  Phase 0.3模块诊断 │───→  │  全部通过才放行      │
+    │ Distill  精简瘦身   │      │  Phase 0.5测试设计 │      └────────────────────┘
+    │ HASP     规则硬化   │      │  Phase 1  基线评估 │
+    └────────────────────┘      │  CHECKPOINT        │
+              │                 │  Phase 2  优化循环  │
+              │                 │  Phase 2.5探索重写 │
+              │                 │  Phase 3  汇总报告  │
+              │                 └─────────┬──────────┘
+              │                           │
+              │      diagnostics.tsv      │   results.tsv
+              │      (模块诊断记录)        │   (评分+优化记录)
+              │                           │
+              └─────────────┬─────────────┘
+                            │
+                            ▼
+                 ┌─────────────────────┐
+                 │    技能文件仓库      │
+                 │  SKILL.md           │
+                 │  references/        │
+                 │  tests.yaml         │
+                 │  test-prompts.json  │
+                 └─────────────────────┘
+>>>>>>> Stashed changes
 ```
 
 ### dry_run 降权规则
@@ -174,7 +210,47 @@ M = w₁ × N(task_domain) + w₂ × N(pii) + w₃ × N(file_scale) + w₄ × N(
 
 ---
 
+<<<<<<< Updated upstream
 ## 自主优化循环
+=======
+## 一、9维度：优化循环（保留自 Darwinv2.0）
+
+### 评估 Rubric（9维度，总分100）
+
+> 依据 SkillLens (arXiv 2605.23899)：LLM-as-judge 准确率仅 46.4%，加入 meta-skill 三维度后提升到 73.8%。
+
+#### 结构维度（59分）— 静态分析
+
+| # | 维度 | 权重 | 评分标准 |
+|---|------|------|---------|
+| 1 | Frontmatter质量 | 7 | name规范、description包含做什么+何时用+触发词、≤1024字符、禁结尾加空话尾巴 |
+| 2 | 工作流清晰度 | 12 | 步骤明确可执行、有序号、每步有明确输入/输出 |
+| 3 | 失败模式编码 | 12 | 必须显式编码失败模式；有fallback路径、错误恢复；只写正向流程扣 ≥3 分 |
+| 4 | 检查点设计 | 6 | 关键决策前有用户确认、显性标记（🔴/STOP/CHECKPOINT） |
+| 5 | 可执行具体性 | 18 | 不模糊、有具体参数/格式/示例；禁止"建议/可以考虑/根据情况"等软化措辞，≥3 处扣 ≥3 分 |
+| 6 | 资源整合度 | 4 | references/scripts/assets引用正确、路径可达 |
+
+#### 效果维度（35分）— 需实测
+
+| # | 维度 | 权重 | 评分标准 |
+|---|------|------|---------|
+| 7 | 整体架构 | 12 | 层次清晰、不冗余不遗漏；冗余/AI腔废话扣分 |
+| 8 | 实测表现 | 23 | 用测试prompt跑一遍，输出质量是否符合宣称能力 |
+
+#### Meta-skill 维度（6分）— 反例与黑名单
+
+| # | 维度 | 权重 | 评分标准 |
+|---|------|------|---------|
+| 9 | 反例与黑名单 | 6 | 必须有"不要做什么"的反例清单；没有扣 ≥3 分 |
+
+评分规则：维度1-7、9 各打 1-10 分×权重；维度8 跑 2-3 个测试 prompt 打分。总分 = Σ(维度分×权重)/10，满分 100。改进后总分必须严格高于改进前。
+
+关于「实测表现」维度：用子 agent 独立执行，带 skill vs 不带 skill baseline 对比输出质量。子 agent 不可用时退化为干跑验证（标注 `dry_run`），但 dry_run 比例 >30% → 评估失效警告。
+
+### Runtime 适配性审查（gate 项）
+
+skill 应避免硬编码特定 runtime 依赖（如 Claude Code / Codex / Cursor 等）。Phase 1 基线评估时强制跑红灯扫描：grep 命中 `在 Claude Code`、`Claude Code skill` 等特定 runtime 措辞 → 强制 P0 修复。
+>>>>>>> Stashed changes
 
 ### Phase 0: 初始化
 
@@ -196,9 +272,29 @@ M = w₁ × N(task_domain) + w₂ × N(pii) + w₃ × N(file_scale) + w₄ × N(
    - 低空间时提示用户是否跳过
 ```
 
+<<<<<<< Updated upstream
 ### Phase 0.5: 测试Prompt设计
 
 在评估之前，为每个skill设计测试prompt。这步很关键——没有测试prompt，「实测表现」维度就打不了分。
+=======
+### Phase 0.3: 模块诊断（模块巡检，产出诊断记录）
+
+对每个 skill 按固定顺序跑模块，写入 diagnostics.tsv：
+
+```
+1. SkillOps 巡检（必须跑）
+   - 扫描路径断裂/冗余/YAML 非法，输出到 diagnostics.tsv
+2. CASCADE 知识更新检查（>90 天未跑或首次）
+   - 扫描过时引用，搜索最新版本，输出到 diagnostics.tsv
+3. EvoSkill / HASP / Distill 存量读取
+   - 以上模块为事件驱动，本次不重复触发
+   - 直接读取它们已有的诊断记录（如有）
+```
+
+**顺序依据**：SkillOps 产出结构诊断 → CASCADE 产出时效诊断，供 Phase 1 评分参考。
+
+### Phase 0.5: 测试 Prompt 设计
+>>>>>>> Stashed changes
 
 ```
 for each skill:
@@ -220,6 +316,7 @@ for each skill:
 ### Phase 1: 基线评估（Baseline）
 
 ```
+<<<<<<< Updated upstream
 for each skill in 优化范围:
 
   # 消费者能力基线测试（full 模式专属）
@@ -265,6 +362,34 @@ for each skill in 优化范围:
   # 汇总
   7. 计算加权总分
   8. 记录到 results.tsv
+=======
+for each skill:
+  # 结构评分（主 agent）
+  1. 读 diagnostics.tsv 最近 30 天记录，作为评分参考
+  2. 读取 SKILL.md 全文，按维度 1-7 逐项打分（附简短理由）
+  # 效果评分（子 agent 独立）
+  3. 对每个测试 prompt，spawn 子 agent 跑带/不带 skill 对比
+  4. 打维度 8 分
+  # 汇总
+  5. 计算加权总分，记录到 results.tsv
+```
+
+**ROI 预检**：计算理论最大可提升分 = Σ[(10 − 各维度分) × 维度权重] / 10。若 < 2 分 → 跳过优化，标记 `skip: ceiling`，直接进 Phase 3。若 ≥ 2 分 → 正常进入 Phase 2。
+
+> 例：dim4 从 7 拉到 10 仅 +1.8 分（6×3/10），dim6 满分才 4 分——低权重维度拉满也难超 2 分阈值。
+
+评分完成后展示评分卡：
+
+```
+┌──────────────────────┬───────┬──────────────┬──────────────┐
+│ Skill                │ Score │ 结构短板      │ 效果短板      │
+├──────────────────────┼───────┼──────────────┼──────────────┤
+│ huashu-proofreading  │ 78    │ dim3 失败模式 │ 测试prompt2  │
+│ huashu-slides        │ 72    │ dim5 指令模糊 │ baseline持平 │
+├──────────────────────┼───────┼──────────────┼──────────────┤
+│ 平均                 │ 75    │              │              │
+└──────────────────────┴───────┴──────────────┴──────────────┘
+>>>>>>> Stashed changes
 ```
 
 **dim8 多维仪表盘**（对应架构级五维中的有效性、可信任度、规范性、可靠性、适用性，full 模式）：
@@ -338,9 +463,54 @@ full 模式下额外展示 dim8 仪表盘：
 
 ### Phase 2: 优化循环
 
+<<<<<<< Updated upstream
 用户确认后，按基线分数从低到高排序，先优化最弱的。
 
 #### 2A. quick 模式（轻量单轮）
+=======
+#### 策略库：维度低分 → 自动修复映射
+
+诊断后查此表，命中即执行对应修复。按优先级 P0→P3 依次排查，每轮只修 1 个维度。
+
+**P0 — Runtime / 效果问题（gate 项）**
+
+| 症状 | dim | 自动修复动作 |
+|---|---|---|
+| 命中 runtime 红灯扫描 | dim6 | 特定 runtime 措辞 → runtime-neutral；Badge 钉死 → 3 中立 badge；安装路径写死 → 自动检测 + 手动路径表 |
+| 带 skill 比不带还差 | dim8 | skill 过度约束，精简指令；不自动执行，标记待用户确认方向 |
+| 输出格式偏离预期 | dim8 | 补充 `## 输出格式` 章节 + 明确输出模板 |
+
+**P1 — 结构性问题**
+
+| 症状 | dim | 自动修复动作 |
+|---|---|---|
+| Frontmatter 缺触发词 / description 不完整 | dim1 | 从 SKILL.md 正文提取核心功能描述，补齐到 description（≤1024 字符）；掐掉结尾空话尾巴 |
+| 缺少 Phase/Step 结构 / 步骤间跳跃 | dim2 | 重组为线性编号流程，每步标注输入 → 输出 |
+| 无失败分支 / 只写正向流程 | dim3 | 补三段式 fallback 表：`\| 触发条件 \| 一线修复 \| 仍失败兜底 \|` |
+| 关键决策处无视觉标记 | dim4 | 插入 🔴 CHECKPOINT / 🛑 STOP（正则检测 `CHECKPOINT\|STOP\|🔴` 确保 ≥1 处） |
+| 标题层级跳跃（H1→H3 无 H2）/ 必含章节缺失 | dim7 | 补中间层级 H2；若缺「设计哲学/执行流程/约束规则/评估 Rubric」中任一章则补 |
+
+**P2 — 具体性问题**
+
+| 症状 | dim | 自动修复动作 |
+|---|---|---|
+| 软化措辞 ≥3 处（"建议/可考虑/根据情况"等） | dim5 | 逐处替换：建议→必须、可考虑→执行、根据情况→按以下规则；保留原文备份 |
+| 步骤模糊 / 缺具体参数 | dim5 | 补充工具名、格式（JSON Schema）、阈值、示例输入输出 |
+| 缺异常处理路径 | dim3 | 补充 `if X 失败 → Y` 分支，优先插入到对应步骤下方 |
+| 引用路径断裂 / 死链接 | dim6 | 修复为实际可达路径；若文件不存在且非关键 → 删除引用 |
+| 引用过期 | dim6 | 搜索最新版本并替换引用 URL/版本号；保留旧版本标注 `[DEPRECATED]` |
+
+**P3 — 可读性问题**
+
+| 症状 | dim | 自动修复动作 |
+|---|---|---|
+| 段落过长（>200 字符） | dim7 | 拆分为多段；适合对比/参数的内容改用 Markdown 表格 |
+| 重复描述 | dim7 | 合并去重，保留最清晰版本 |
+| 缺少反例标注（dim9 关键词 <3 处） | dim9 | 在关键操作步骤旁补 `⚠️ 不要做 X` 格式反例（≥3 处不同语境） |
+| 缺少速查入口 | dim7 | 在文件顶部添加 TL;DR 或决策树 |
+
+#### 循环流程
+>>>>>>> Stashed changes
 
 ```
 for each skill:
@@ -366,6 +536,7 @@ for each skill:
   round = 0
   while round < MAX_ROUNDS (默认3):
     round += 1
+<<<<<<< Updated upstream
 
     # Step 1: 诊断
     找出得分最低的维度（结构或效果都算，full 模式含 dim10）
@@ -428,6 +599,47 @@ for each skill:
 ```
 
 ### Phase 2.5: 探索性重写（full 模式专属，按需触发）
+=======
+    1. 诊断：找得分最低维度（注意 dim2/3/4 是相关簇——修 dim3 时 dim2 常跟涨）
+    1.5 模块诊断合并：读 diagnostics.tsv 最近 30 天记录
+       - 记录中的 dim → 插入该维度修复队列头部（高于纯分数排序）
+       - 按以下映射表将 subtype 转换为具体策略库条目，file+line 直接标注在修复动作中
+
+       | 模块 subtype | → 策略库条目 |
+       |---|---|
+       | EvoSkill: trigger_gap | P1 dim1 "Frontmatter 缺触发词" |
+       | EvoSkill: flow_gap | P1 dim2 "缺少 Phase/Step 结构" |
+       | EvoSkill: rule_missing | P1 dim3 "无失败分支" |
+       | EvoSkill: rule_conflict | P2 dim3 "缺异常处理路径" |
+       | EvoSkill: output_format | P0 dim8 "输出格式偏离预期" |
+       | EvoSkill: version_compat | P2 dim6 "引用路径断裂" |
+       | SkillOps: merge | P3 dim7 "重复描述" |
+       | SkillOps: repair | P2 dim6 "引用路径断裂" |
+       | SkillOps: retire | P2 dim6 "死链接" |
+       | SkillOps: add_validator | P2 dim3 "缺异常处理路径" |
+       | CASCADE: outdated_ref | P2 dim6 "引用过期" |
+       | Distill: distill | P3 dim7 "段落过长/重复描述" |
+       | HASP: wording_harden | P2 dim5 "软化措辞" |
+       | HASP: pf_harden | P2 dim5 "软化措辞" |
+
+       - 同一 dim 有多条记录时按 timestamp 倒序（最新优先）
+    2. 查策略库：命中则执行对应自动修复；若复合症状则按 P0>P1>P2>P3 优先级
+       - 未命中策略库 → 手动生成改进方案（改什么、为什么、预期提升）
+       - 方案被 rejected_edits.md 命中 → 绕行，换方向重新诊断
+    3. 执行改进，git commit
+    4. 重新评估（效果维度必须用独立子 agent）
+    5. 决策：新总分 > 旧总分 → keep；否则 revert
+       - 连续 2 轮 Δ < 2 分 → break（触顶）
+    6. 追加 results.tsv
+  🔴 CHECKPOINT：每个 skill 优化完后展示 diff + 分数变化，等用户确认
+```
+
+**相关簇提醒**：dim2/3/4 联动——修 dim3（三段式 fallback）时 dim2 常跟涨 1-2 分。若 dim3 已满分但仍需修 dim2，优先用「重组线性流程」策略。
+
+**编辑预算**：每次编辑字符变化量 ≤ 原文件 10%。自动修复默认控制在 5% 以内；超过 8% 时在 commit message 标注 `[budget_warn]`。
+
+### Phase 2.5: 探索性重写（按需）
+>>>>>>> Stashed changes
 
 当 hill-climbing 连续2个skill都在 round 1 就 break（涨不动）时，提议一次「探索性重写」：
 
@@ -670,9 +882,31 @@ timestamp	version_id	skill	old_score	new_score	status	dimension	note	eval_mode	m
 2026-03-31T10:10	v2	huashu-proofreading	84	82	revert	指令具体性	过度细化	dry_run	quick
 ```
 
+<<<<<<< Updated upstream
 新增 `eval_mode` 列：`full_test`（跑了子agent测试）或 `dry_run`（模拟推演）。
 新增 `mode` 列：`quick` 或 `full`，记录本次优化的执行模式。
 文件位置：`results.tsv`（与 SKILL.md 同目录）
+=======
+### diagnostics.tsv 格式（模块 ↔ 跑分共享接口）
+
+模块产出的结构化诊断记录，Phase 2 启动优化时读取。如文件不存在则跳过（无模块诊断记录时不影响正常优化流程）。
+
+```tsv
+timestamp	source	dim	subtype	file	line	detail
+```
+
+| 字段 | 说明 |
+|------|------|
+| timestamp | 诊断生成时间 |
+| source | 模块名：EvoSkill / SkillOps / CASCADE / Distill / HASP |
+| dim | 映射到的评分维度（dim1-dim9） |
+| subtype | 症状子类型，直接命中策略库 P0-P3 条目 |
+| file | 目标文件路径（相对技能目录） |
+| line | 具体行号 |
+| detail | 一句话描述具体问题 |
+
+**有效期**：Phase 2 只读取最近 30 天的记录，旧记录自动忽略。
+>>>>>>> Stashed changes
 
 ---
 
@@ -712,11 +946,32 @@ timestamp	version_id	skill	old_score	new_score	status	dimension	note	eval_mode	m
 | Held-out 验证退化（full） | Phase 3 held-out 分数 < baseline | 警告过拟合，记录标志位 held_out_fail=true，建议回滚或补防 |
 | 分数计算规则 | 浮点精度漂移 | 总分保留 1 位小数，改进需严格 > 旧分（不靠四舍五入） |
 
+<<<<<<< Updated upstream
 **原则**：异常先告知用户，再按规则处理；绝不静默跳过或静默失败。
+=======
+Step 2: 定位缺口
+  - 工具化扫描：`scripts/evo_skill_patcher.py <skill_dir>` 自动分析 gap_type + 定位行号
+  - 按缺口分类表交叉验证类型
+  - 定位技能文件中需修改的具体位置（文件路径 + 行号范围）
+>>>>>>> Stashed changes
 
 ---
 
+<<<<<<< Updated upstream
 ## luban 操作反例黑名单（dim9 应用：luban 自己优化时不要做的事）
+=======
+Step 4: 写入诊断记录
+  - 确认并应用补丁后，追加一行到目标技能的 diagnostics.tsv
+  - 格式：timestamp | EvoSkill | dim | subtype | file | line | detail
+  - 缺口类型 → subtype + dim 映射：
+    · 触发词遗漏 → subtype=trigger_gap, dim1
+    · 流程漏洞 → subtype=flow_gap, dim2
+    · 规则缺失 → subtype=rule_missing, dim3
+    · 指令冲突 → subtype=rule_conflict, dim3
+    · 输出格式不当 → subtype=output_format, dim8
+    · 版本兼容 → subtype=version_compat, dim6
+```
+>>>>>>> Stashed changes
 
 来自本机 results.tsv 早期 40 次 0 revert 的教训 + Judge G/H 自指评估暴露的反模式。每条都是**真实踩过的坑**。
 
@@ -780,7 +1035,54 @@ timestamp	version_id	skill	old_score	new_score	status	dimension	note	eval_mode	m
 
 ### `meta_learnings.md` — 跨 skill 经验沉淀文件结构
 
+<<<<<<< Updated upstream
 `meta_learnings.md` 是 Epoch Meta-Review 与各恢复/诊断机制的统一写入目标，存储跨 skill 的优化规律、退化诊断和异常信号。文件位于 SA-DM 全局配置目录（与 `luban-profile.json` 同级），结构如下：
+=======
+> 论文：[arXiv:2605.13716](https://arxiv.org/abs/2605.13716)
+> 核心理念：将技能库维护形式化为独立的「库时」问题，五维诊断 + 自动维护。
+
+### 触发条件
+
+- 定时任务：每周自动执行
+- 用户指令："检查技能健康""技能体检""巡检"
+
+### 五维诊断矩阵
+
+| 维度 | 检查项 | 严重程度 |
+|------|--------|----------|
+| 效用 | SKILL.md 每条规则是否有触发条件；references 是否被引用 | 🟡/🟢 |
+| 冗余 | 内容高度重复的 references；SKILL.md 中可合并的段落 | 🟢 |
+| 兼容性 | 文件路径引用断裂；外部链接失效；YAML 非法 | 🔴/🟡/🔴 |
+| 失败风险 | 未定义触发条件的强制规则；规则粒度过粗 | 🟡/🟢 |
+| 验证缺口 | 缺少对应 rules 的验证步骤；references 缺示例和反例 | 🟡/🟢 |
+
+### 维护动作（对齐 SkillOps 原论文概念）
+
+| 动作 | 含义 | 示例 |
+|------|------|------|
+| `merge` | 合并内容高度重复的 references（相似度 > 0.8） | ref-a.md + ref-b.md → ref-merged.md |
+| `repair` | 修复断裂引用或非法格式 | 路径 /old/path.md 不存在 → 改为 /new/path.md |
+| `retire` | 标记过时规则（加 `[DEPRECATED]`） | 规则提到已停用的 API → 标记待清理 |
+| `add_validator` | 补充验证/测试用例 | 规则 A 无验证流程 → 自动生成测试样例 |
+
+### 执行流程
+
+```
+Step 1: 加载目标技能文件（SKILL.md + references/ 下所有文件）
+Step 2: 逐维度扫描
+  - 工具化扫描：执行 `scripts/skillops_scanner.py <skill_dir>` 做结构分析（路径、YAML、引用链）
+  - 语义化扫描：Agent 做内容分析（规则一致性、重复、歧义）
+Step 3: 汇总诊断报告（按 🔴 > 🟡 > 🟢 排序）
+Step 4: 生成维护动作清单（输出报告，不自动修改）
+
+Step 5: 写入诊断记录
+  - 每个维护动作追加一行到目标技能的 diagnostics.tsv
+  - 动作 → dim 映射：merge→dim7, repair→dim6, retire→dim6, add_validator→dim3
+  - 格式：timestamp | SkillOps | dim | subtype | file | line | detail
+```
+
+### 输出格式
+>>>>>>> Stashed changes
 
 ```markdown
 # Meta Learnings — SA-DM Global
@@ -1160,6 +1462,7 @@ timestamp	commit	skill	round	old_score	new_score	status	dim_changed	delta	note	e
 
 来自早期 40 次 0 revert 的教训。每轮 Phase 3 Step 2 改动前对照一次，命中 → 改方案重写。
 
+<<<<<<< Updated upstream
 | # | 反模式 | 为什么不要做 | 替代做法 |
 |---|--------|-------------|---------|
 | 1 | **同 context 自评自改** | LLM-as-judge 准确率仅 46.4%，乐观偏差严重 | spawn 独立子 agent 评分，至少 2 个 judge 共识 |
@@ -1172,6 +1475,50 @@ timestamp	commit	skill	round	old_score	new_score	status	dim_changed	delta	note	e
 | 8 | **虚构评分依据** | 评分不附原文锚定，整轮不可信 | 必须附原文引用锚定；1 处不匹配→整轮作废 |
 | 9 | **忽略拒绝编辑历史** | 被 revert 过的方向本轮只换措辞又提交 | 每轮先审阅 rejected_edits.md，重叠则绕行 |
 | 10 | **忽视维度相关性单独优化** | dim2/3/4 是相关簇，单独优化 dim2 时常已被前轮 dim3 修复推到顶 | 找最低维度时同时看相关簇短板，决定是否同步改 |
+=======
+### 触发条件
+
+- 定时任务：每季度自动执行
+- 用户指令："更新技能知识""补最新""刷新 references"
+- 技能 references 中引用外部知识且距上次更新 > 90 天
+
+### 执行流程
+
+```
+Step 1: 扫描 references/ 目录
+  - 工具化扫描：`scripts/cascade_updater.py <skill_dir> --threshold 90` 自动提取 arXiv/URL/标准引用并判定过时
+  - 识别所有外部引用（arXiv ID、API 文档 URL、标准编号等）
+  - 记录每个引用的最后更新日期（优先 git log，回退至文件 mtime）
+
+Step 2: 筛选过时引用
+  - 距上次更新 > 90 天（可通过 --threshold 调整）→ 标记待更新
+  - 优先处理用户最近高频使用的技能
+
+Step 3: 知识检索
+  - 论文：搜索引用 arXiv ID，检查是否有新版本
+  - API：抓取最新文档，对比 changelog
+  - 标准：搜索是否发布了新版本
+
+Step 4: 自我反思（内省）
+  - 对比新旧知识差异
+  - 判断是否影响技能规则的有效性
+  - 仅在有实质性变化时生成更新
+
+Step 5: 追加式更新
+  - 追加新知识（不删除旧内容，标注版本号）
+  - 格式：## [YYYY-MM-DD] 更新：xxx → 新内容
+
+Step 6: 写入诊断记录
+  - 每个过时引用追加一行到目标技能的 diagnostics.tsv（仅当确实找到更新时）
+  - 格式：timestamp | CASCADE | dim6 | outdated_ref | file | line | detail
+```
+
+### 关键设计
+
+- 只追加不删除：旧知识的废弃留给 SkillOps 的 `retire` 动作
+- 标注版本：每次更新附带日期和版本号
+- 不自动修改规则：仅更新 references，不自动改 SKILL.md 中的规则引用
+>>>>>>> Stashed changes
 
 ---
 
@@ -1240,16 +1587,56 @@ timestamp	commit	skill	round	old_score	new_score	status	dim_changed	delta	note	e
 ## 使用方式
 
 ```
+<<<<<<< Updated upstream
 "优化所有skills"      → Phase 0-6 完整流程
 "优化 luban-slides"  → 只对指定 skill 执行 Phase 1-4
 "评估所有skills"       → 只执行 Phase 1-2，不进入优化循环
 "看看skill优化历史"    → 读取并展示 results.tsv
+=======
+F_approx = 1 - (模块被规则引用的次数 / 模块总字符数归一化)
+
+归一化方式：模块总字符数 / 所有模块总字符数的均值。分母过小时取 max(均值, 100)。
+```
+
+- F ≈ 1：模块内容庞大但很少被引用 → 可精简
+- F ≈ 0：模块内容紧凑且多处引用 → 保留
+- F_approx ≥ 0.7：标记「可精简」；≤ 0.3：标记「核心资产」
+
+### 精简优先级
+
+| 优先级 | 类型 | 处理 |
+|--------|------|------|
+| P0 | 完全未被引用的 references | 直接建议删除 |
+| P1 | 文件大但仅 1-2 处引用 | 提取引用段落到 SKILL.md，删原文件 |
+| P2 | 多处重复的示例代码块 | 合并为一个 reference |
+| P3 | 历史版本累积的旧内容 | 归档到 archive/ 子目录 |
+
+### 执行流程
+
+```
+Step 1: 构建引用矩阵
+  - 执行 `scripts/distill_analyzer.py <skill_dir>` 自动扫描引用关系
+  - SKILL.md 每条规则 → 引用了 references/ 的哪些段落
+  - 计算每个 references 文件的「有效引用密度」
+
+Step 2: 计算 F_approx，分级标记
+
+Step 3: 生成精简方案
+  - 展示「删除后文件大小变化」预估
+  - 标注「保留的核心内容」
+  - 🔴 CHECKPOINT：待用户确认后执行
+
+Step 4: 写入诊断记录
+  - 确认执行后，每个 P0 删除 / P1-P3 精简项追加一行到目标技能的 diagnostics.tsv
+  - 格式：timestamp | Distill | dim7 | distill | file | line | detail
+>>>>>>> Stashed changes
 ```
 
 ---
 
 ## 资源文件
 
+<<<<<<< Updated upstream
 | 路径 | 用途 | 状态 |
 |:---|:---|:---|
 | `references/SA-DM.md` | 方法论骨架文档（理论来源，运行时无需读取） | 静态 |
@@ -1259,3 +1646,271 @@ timestamp	commit	skill	round	old_score	new_score	status	dim_changed	delta	note	e
 | `{skill_name}/rejected_edits.md` | 被拒绝的编辑方案 | 运行时生成 |
 | `{skills 目录}/meta_learnings.md` | 跨 skill 可迁移优化规律 | 运行时生成 |
 | `{skills 目录}/luban-profile.json` | 全局配置（oscillation_guard） | 运行时生成 |
+=======
+> 论文：[arXiv:2605.17734](https://arxiv.org/abs/2605.17734)
+> 核心理念：技能升格为可执行程序函数（PF），含 should_activate + intervene，从"建议"变"硬纠正"。
+
+### 触发条件
+
+- 同一规则在同一场景下连续 2 次以上被忽略
+- 用户指令："规则硬化""硬一点""这个规则总被忽略"
+
+### 硬化层级
+
+#### 层级 1：Should → Must（措辞强化）
+
+```
+原文：建议在生成 SKILL.md 时控制文件大小在 30KB 以内
+
+硬化后：强制约束：SKILL.md 文件大小不得超过 30KB。
+超限时，必须将详细内容拆分到 references/，SKILL.md 仅保留导航链接。
+```
+
+#### 层级 2：Should → PF（可执行程序函数）
+
+在 SKILL.md frontmatter 中追加硬规则元数据：
+
+```yaml
+hard_rules:
+  - id: rule_001
+    should_activate: "SKILL.md 文件大小 > 30KB"
+    intervene:
+      type: "block_and_restructure"
+      action: "禁止继续在 SKILL.md 追加内容，将超出部分写入新 reference 文件"
+    severity: "critical"
+    last_violated: "2026-06-10"
+    violation_count: 3
+```
+
+### 执行流程
+
+```
+Step 1: 执行日志分析
+  - 工具化扫描：`scripts/hasp_hardener.py <skill_dir> [--results <results.tsv>]` 自动提取软规则、匹配违规历史
+  - 从 `results.tsv` 和 EvoSkill 失败捕获记录中提取规则违规实例
+  - 识别「规则被忽略」的实例（同一场景下规则未被遵循）
+
+Step 2: 分级处理
+  - 工具自动判定 T0（基线）/ T1（措辞强化，违规 2 次）/ T2（PF 硬化，违规 ≥3 次）
+  忽略 1 次 → 暂不处理
+  忽略 2 次 → 生成措辞强化建议（层级 1：建议 → 必须）
+  忽略 ≥3 次 → 生成 PF 硬化建议（层级 2：注入 hard_rules YAML 块）
+
+Step 3: 硬化规则注入
+  - 定义 should_activate 条件 + intervene 动作
+  - 🔴 CHECKPOINT：待用户确认后执行
+
+Step 4: 写入诊断记录
+  - 确认执行后，追加一行到目标技能的 diagnostics.tsv
+  - 违规 ≥2 次：subtype=wording_harden；违规 ≥3 次：subtype=pf_harden
+  - 格式：timestamp | HASP | dim5 | subtype | file | line | detail
+```
+
+### 硬化适用性
+
+| 规则类型 | 适合硬化 | 原因 |
+|----------|---------|------|
+| 输出格式约束 | ✅ | 可精确检测和修正 |
+| 文件大小限制 | ✅ | 可精确检测 |
+| 必须包含的章节/字段 | ✅ | 结构化检查 |
+| 语义风格约束 | ❌ | 难以精确检测 |
+| 创造性建议 | ❌ | 无法形式化 |
+
+---
+
+## 七、MUSE-Autoskill 模块：修改后自动回归测试
+
+> 论文：[arXiv:2605.27366](https://arxiv.org/abs/2605.27366)
+> 核心理念：双驱动评估（单元测试 + 运行反馈），自动触发修补和重测，首次实证跨智能体技能迁移。
+
+### 触发条件
+
+- 任何对技能文件（SKILL.md 或 references/）的编辑操作完成后
+- 自动触发，无需用户指令
+
+### 测试用例生成维度
+
+| 维度 | 生成方法 | 示例 |
+|------|----------|------|
+| 触发词识别 | 从 SKILL.md 提取所有触发词，逐一构造输入 | 输入"小鲁班" → 预期触发 |
+| 输出格式 | 提取格式约束，构造验收条件 | 输出必须包含 YAML frontmatter |
+| 关键规则遵守 | 提取"必须"/"禁止"语句，构造边界测试 | 输入超限请求 → 预期拒绝 |
+| 流程完整性 | 按技能 Step 列表逐项模拟 | Step 3 依赖 Step 2 的输出 → 断链测试 |
+| references 可达性 | 遍历所有文件路径引用 | 逐条检查文件是否存在 |
+| 反例测试 | 构造明确不在范围内的输入 | "帮我写操作系统" → 预期不触发 |
+
+### 执行流程
+
+```
+Step 1: 修改前快照
+  - 执行 `scripts/muse_generator.py <skill_dir>` 保存修改前 hash 并生成测试用例
+  - 保存修改前完整文件 hash
+  - 自动生成 5-10 条测试用例（基于 6 维度）
+
+Step 2: 执行修改
+
+Step 3: 回归测试
+  - 逐条运行测试用例
+  - 逐条检查修改后的技能行为
+
+Step 4: 结果判定
+  全部通过 → 「回归测试通过，无退化」
+  部分失败 → 列出失败项 + 偏差 + 建议回滚
+  全部失败 → 强制建议回滚
+
+Step 5: 测试用例沉淀
+  - 通过的用例追加到 tests.yaml（如不存在则创建）
+  - 形成持续增长的回归测试集
+```
+
+### tests.yaml 格式
+
+```yaml
+skill: {skill_name}
+generated_at: {date}
+tests:
+  - id: trigger_001
+    dimension: "触发词识别"
+    input: "{test_input}"
+    expected: "{expected_behavior}"
+    status: pass | fail
+    last_run: {date}
+    
+  - id: format_001
+    dimension: "输出格式"
+    condition: "{constraint}"
+    check: "{check_method}"
+    status: pass | fail
+    last_run: {date}
+```
+
+---
+
+## 八、调度器：触发策略
+
+```
+事件驱动（立即响应）
+  ├── P0: 用户明确反馈技能错误         → EvoSkill
+  ├── P0: 技能编辑操作完成              → MUSE 回归测试
+  ├── P1: 同一规则连续忽略 3 次         → HASP 层级 2
+  └── P2: 同一规则连续忽略 2 次         → HASP 层级 1
+
+按需触发（用户指令）→ 详见第十二节
+
+定时驱动（周期扫描）
+  ├── 每周：SkillOps 健康巡检
+  ├── 每月：Skill Distill 精简检查（仅当冗余评分低时）
+  └── 每季度：CASCADE 知识更新检查（仅当有外部引用时）
+```
+
+### 并发控制与冲突仲裁
+
+| 场景 | 仲裁规则 |
+|------|----------|
+| 任何模块 vs 用户正在手动编辑 | 用户优先，模块排队 |
+| Phase 2 编辑中 vs 事件模块同时触发 | Phase 2 优先（按需触发等同用户指令），事件模块排队 |
+| SkillOps 巡检 vs 用户正在编辑 | 巡检只读执行，仅输出报告 |
+| Skill Distill vs HASP 同时触发 | HASP 优先（质量保障），精简让步 |
+| MUSE 回归测试运行中 | 锁定技能文件，其他模块等待 |
+| 同一技能多个任务排队 | FIFO 顺序执行 |
+
+---
+
+## 九、异常与边界条件
+
+| 场景 | 处理动作 |
+|------|----------|
+| 不在 git 仓库 | 询问用户：`git init` 或回退到文件备份 `.bak.YYYYMMDD-HHMM` |
+| results.tsv 缺失 | 新建并写表头 |
+| results.tsv 损坏 | 备份为 `.bak` 后重建 |
+| 分支已存在 | 分支名加 `-2`/`-3`；第 3 次失败切回现有分支询问 |
+| `git revert` 失败 | 先 `git stash` 重试；仍失败从上一个 commit 读 SKILL.md 手动恢复 |
+| MAX_ROUNDS 触顶 | 展示最弱维度问用户「加 1 轮 / Phase 2.5 / 收工」 |
+| 优化后超 150% 体积 | 拒绝提交，进精简流程 |
+| test-prompts.json 已存在 | 默认复用，问用户「复用/重写/追加」 |
+| SKILL.md 找不到 | 该 skill 终止，status=error，继续下一个 |
+| dry_run 比例 > 30% | 评估失效警告；尝试 1 次 full_test；仍 dry_run → 放弃要求，标注 `[eval_degraded]` |
+| 多个模块同时触发 | 按优先级排队，EvoSkill > MUSE > HASP > SkillOps > CASCADE > Distill |
+
+**原则**：异常先告知用户，再按规则处理；绝不静默跳过。
+
+---
+
+## 十、反例黑名单（本底座自己优化时不做的事）
+
+| # | 反模式 | 替代做法 |
+|---|--------|----------|
+| 1 | 同 context 自评自改 | 必须 spawn 独立子 agent 评分 |
+| 2 | `git reset --hard` 当回滚 | 用 `git revert HEAD` 保留追溯链 |
+| 3 | 为凑分增冗余 | 触顶信号（连续 2 轮 Δ<2）→ break |
+| 4 | 跳过 test-prompts 直接评分 | Phase 0.5 强制设计 2-3 prompts |
+| 5 | 轮内改多个维度 | 每轮 1 个维度 |
+| 6 | dry_run 比例 > 30% | 强制至少 1 个 full_test |
+| 7 | 静默跳过异常 | 异常表 fallback 必须先告知 |
+| 8 | 忽视维度相关性单独优化 | 看相关簇短板再决定 |
+
+---
+
+## 十一、约束规则
+
+1. **不改变技能核心功能和用途** — 优化"怎么写"，不改"做什么"
+2. **不引入新依赖** — 不添加原本没有的 scripts 或 references
+3. **每轮只改一个维度** — 避免多变量无法归因
+4. **保持文件大小合理** — 优化后 ≤ 原大小 150%
+5. **可回滚** — 所有改动在 git 分支上，用 `git revert` 而非 `reset --hard`
+6. **评分独立性** — 效果维度必须用子 agent 或干跑验证
+7. **Runtime 中立** — 技能必须能在任何 skills-compatible runtime 运行
+8. **人在回路** — 所有修改操作必须经用户确认（只读扫描除外）
+9. **追加优于覆盖** — CASCADE 知识更新只追加不删除旧内容
+
+---
+
+## 十二、使用方式
+
+| 指令 | 触发模块 |
+|------|----------|
+| "优化所有 skills" | 鲁班核心引擎 Phase 0-3（全量） |
+| "优化 {skill_name}" | 鲁班核心引擎 Phase 0-3（单个） |
+| "评估所有 skills 质量" | Phase 0.5-1（仅评估不改） |
+| "检查技能健康" | SkillOps 巡检 |
+| "这个技能有问题 / 不对" | EvoSkill 失败修补 |
+| "更新技能知识" | CASCADE 知识更新 |
+| "精简技能 / 瘦身" | Skill Distill |
+| "规则硬化 / 硬一点" | HASP 规则硬化 |
+| "看看优化历史" | 读取 results.tsv |
+
+---
+
+## 十三、资源文件速查
+
+| 路径 | 用途 |
+|------|------|
+| `results.tsv` | 历次优化日志（9 列含 eval_mode） |
+| `{skill目录}/test-prompts.json` | 每个 skill 的测试 prompt |
+| `{skill目录}/tests.yaml` | MUSE 回归测试用例（持续沉淀） |
+| `scripts/skillops_scanner.py` | SkillOps 工具化扫描（路径/YAML/引用链结构分析） |
+| `scripts/distill_analyzer.py` | Distill 引用矩阵构建与 F_approx 计算 |
+| `scripts/muse_generator.py` | MUSE 测试用例自动生成与回归执行 |
+| `references/SA-DM.md` | SkillOps 设计方法论完整论文 |
+| `QUICKSTART.md` | 快速上手指南 |
+| `README.md` | 项目概览与架构说明 |
+
+---
+
+## 学术依据
+
+- **EvoSkill** (arXiv [2603.02766](https://arxiv.org/abs/2603.02766))：失败驱动的技能缺口发现与自动修补
+- **SkillOps** (arXiv [2605.13716](https://arxiv.org/abs/2605.13716))：技能库运维框架，五维健康诊断
+- **CASCADE** (arXiv [2512.23880](https://arxiv.org/abs/2512.23880))：持续学习 + 自我反思驱动的技能进化
+- **Skill Distill** (arXiv [2604.01608](https://arxiv.org/abs/2604.01608))：指标自由度 F 驱动的精简决策
+- **HASP** (arXiv [2605.17734](https://arxiv.org/abs/2605.17734))：技能升格为可执行程序函数
+- **MUSE-Autoskill** (arXiv [2605.27366](https://arxiv.org/abs/2605.27366))：全生命周期管理 + 回归测试
+- **SkillLens** (arXiv [2605.23899](https://arxiv.org/abs/2605.23899))：9 维 rubric 实证来源
+- **SkillOpt** (arXiv [2605.23904](https://arxiv.org/abs/2605.23904))：validation-gated edits 形式化框架
+- **autoresearch**：Karpathy 自主实验循环
+
+---
+
+> "Train your Skills like you train your models."
+> — 技能自进化底座，站在六篇论文的肩膀上。
+>>>>>>> Stashed changes
