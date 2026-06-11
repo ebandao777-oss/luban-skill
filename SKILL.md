@@ -94,8 +94,8 @@ autoresearch + SkillOpt 场景自适应。
     │ CASCADE  知识更新   │───→  │  Phase 0.3模块诊断 │───→  │  全部通过才放行      │
     │ Distill  精简瘦身   │      │  Phase 0.5测试设计 │      └────────────────────┘
     │ HASP     规则硬化   │      │  Phase 1  基线评估 │
-    └────────────────────┘      │  CHECKPOINT        │
-              │                 │  Phase 2  优化循环  │
+    └────────────────────┘      │  CHECKPOINT       │
+              │                 │  Phase 2  优化循环 │
               │                 │  Phase 2.5探索重写 │
               │                 │  Phase 3  汇总报告  │
               │                 └─────────┬──────────┘
