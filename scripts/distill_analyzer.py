@@ -41,11 +41,12 @@ def compute_f_approx(citations: dict[str, int], ref_dir: Path) -> list[dict]:
     if not file_sizes:
         return []
 
-    max_size = max(file_sizes.values()) if file_sizes else 1
+    mean_size = sum(file_sizes.values()) / len(file_sizes) if file_sizes else 1
+    mean_size = max(mean_size, 100)  # SKILL.md 约定：分母过小取 max(均值, 100)
     results = []
 
     for rel, size in sorted(file_sizes.items(), key=lambda x: x[1], reverse=True):
-        normalized_size = size / max_size if max_size > 0 else 1.0
+        normalized_size = size / mean_size if mean_size > 0 else 1.0
         cite_count = citations.get(rel, 0)
         # 引用密度: 被引用次数 / 归一化大小
         density = cite_count / normalized_size if normalized_size > 0 else 0
