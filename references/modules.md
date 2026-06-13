@@ -12,22 +12,20 @@
 
 ```
 Step 1: 扫描 references/ 目录
-  - 工具化扫描：`scripts/cascade_updater.py <skill_dir> --threshold 90` 自动提取 arXiv/URL/标准引用并判定过时
-  - 识别所有外部引用（arXiv ID、API 文档 URL、标准编号等）
-  - 记录每个引用的最后更新日期（优先 git log，回退至文件 mtime）
+  - 执行 `scripts/cascade_updater.py <skill_dir> --threshold 90` 提取外部引用并判定过时
+  - 记录最后更新日期（优先 git log，回退至 mtime）
 
 Step 2: 筛选过时引用
-  - 距上次更新 > 90 天（可通过 --threshold 调整）→ 标记待更新
-  - 优先处理用户最近高频使用的技能
+  - 距上次更新 > 90 天 → 标记待更新
+  - 优先高频使用的技能
 
 Step 3: 知识检索
-  - 论文：搜索引用 arXiv ID，检查是否有新版本
+  - 论文：搜索 arXiv ID，检查新版本
   - API：抓取最新文档，对比 changelog
-  - 标准：搜索是否发布了新版本
+  - 标准：搜索新版本
 
 Step 4: 自我反思（内省）
   - 对比新旧知识差异
-  - 判断是否影响技能规则的有效性
   - 仅在有实质性变化时生成更新
 
 Step 5: 追加式更新
@@ -35,7 +33,7 @@ Step 5: 追加式更新
   - 格式：## [YYYY-MM-DD] 更新：xxx → 新内容
 
 Step 6: 写入诊断记录
-  - 每个过时引用追加一行到目标技能的 diagnostics.tsv（仅当确实找到更新时）
+  - 确实有更新的引用追加 diagnostics.tsv
   - 格式：CASCADE | dim6 | 子分 | 文件 | 行号 | 详情
 ```
 
@@ -74,8 +72,7 @@ F_approx = 1 - (模块被规则引用的次数 / 模块总字符数归一化)
 
 ```
 Step 1: 构建引用矩阵
-  - 执行 `scripts/distill_analyzer.py <skill_dir>` 自动扫描引用关系
-  - SKILL.md 每条规则 → 引用了 references/ 的哪些段落
+  - 执行 `scripts/distill_analyzer.py <skill_dir>` 自动扫描引用
   - 计算每个 references 文件的「有效引用密度」
 
 Step 2: 计算 F_approx，分级标记
@@ -86,7 +83,7 @@ Step 3: 生成精简方案
   - 🔴 CHECKPOINT：待用户确认后执行
 
 Step 4: 写入诊断记录
-  - 确认执行后，每个 P0 删除 / P1-P3 精简项追加一行到目标技能的 diagnostics.tsv
+  - 确认执行后，P0 删除 / P1-P3 精简项追加 diagnostics.tsv
   - 格式：Distill | dim7b | 子分 | 文件 | 行号 | 详情
 ```
 
@@ -133,23 +130,20 @@ hard_rules:
 
 ```
 Step 1: 执行日志分析
-  - 工具化扫描：`scripts/hasp_hardener.py <skill_dir> [--results <results.tsv>]` 自动提取软规则、匹配违规历史
-  - 从 `results.tsv` 和 EvoSkill 失败捕获记录中提取规则违规实例
-  - 识别「规则被忽略」的实例（同一场景下规则未被遵循）
+  - 执行 `scripts/hasp_hardener.py <skill_dir> [--results <results.tsv>]` 提取软规则、匹配违规
+  - 识别「规则被忽略」的实例
 
 Step 2: 分级处理
   - 工具自动判定 T0（基线）/ T1（措辞强化，违规 2 次）/ T2（PF 硬化，违规 ≥3 次）
   忽略 1 次 → 暂不处理
-  忽略 2 次 → 生成措辞强化建议（层级 1：建议 → 必须）
-  忽略 ≥3 次 → 生成 PF 硬化建议（层级 2：注入 hard_rules YAML 块）
 
 Step 3: 硬化规则注入
   - 定义 should_activate 条件 + intervene 动作
   - 🔴 CHECKPOINT：待用户确认后执行
 
 Step 4: 写入诊断记录
-  - 确认执行后，追加一行到目标技能的 diagnostics.tsv
-  - 违规 ≥2 次：subtype=wording_harden；违规 ≥3 次：subtype=pf_harden
+  - 确认执行后追加 diagnostics.tsv
+  - 违规 ≥2 次：subtype=wording_harden；≥3 次：subtype=pf_harden
   - 格式：HASP | dim5 | 子分 | 文件 | 行号 | 详情
 ```
 
@@ -190,24 +184,19 @@ Step 4: 写入诊断记录
 
 ```
 Step 1: 修改前快照
-  - 执行 `scripts/muse_generator.py <skill_dir>` 保存修改前 hash 并生成测试用例
-  - 保存修改前完整文件 hash
-  - 自动生成 5-10 条测试用例（基于 6 维度）
+  - 执行 `scripts/muse_generator.py <skill_dir>` 保存 hash 并生成 5-10 条测试用例（6 维度）
 
 Step 2: 执行修改
 
-Step 3: 回归测试
-  - 逐条运行测试用例
-  - 逐条检查修改后的技能行为
+Step 3: 回归测试 → 逐条检查修改后行为
 
 Step 4: 结果判定
-  全部通过 → 「回归测试通过，无退化」
+  全部通过 → 「回归测试通过」
   部分失败 → 列出失败项 + 偏差 + 建议回滚
   全部失败 → 强制建议回滚
 
 Step 5: 测试用例沉淀
   - 通过的用例追加到 tests.yaml（如不存在则创建）
-  - 形成持续增长的回归测试集
 ```
 
 ### tests.yaml 格式
@@ -239,10 +228,10 @@ tests:
 
 ```
 事件驱动（立即响应）
-  ├── P0: 用户明确反馈技能错误         → EvoSkill
-  ├── P0: 技能编辑操作完成              → MUSE 回归测试
-  ├── P1: 同一规则连续忽略 3 次         → HASP 层级 2
-  └── P2: 同一规则连续忽略 2 次         → HASP 层级 1
+  ├── P0: 用户反馈技能错误         → EvoSkill
+  ├── P0: 技能编辑完成              → MUSE 回归测试
+  ├── P1: 规则连续忽略 3 次         → HASP 层级 2
+  └── P2: 规则连续忽略 2 次         → HASP 层级 1
 
 按需触发（用户指令）→ 详见 FAQ 指令映射表
 
