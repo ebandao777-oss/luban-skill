@@ -5,38 +5,41 @@ EvoSkill 失败驱动技能修补器 —— 捕获失败上下文、分类缺口
       --context: 失败上下文 JSON 文件路径；不传则从 stdin 读取。
 输出: JSON 补丁建议。
 """
-import sys, json, re
+import sys, json, re, argparse
 from pathlib import Path
 
-# ── 触发词提取 ──
-def extract_triggers(text: str) -> set[str]:
-    """从 SKILL.md frontmatter description 中提取触发词"""
-    triggers: set[str] = set()
-    desc_match = re.search(r"^description\s*:\s*(.+)", text, re.MULTILINE)
-    if not desc_match:
+try:
+    from luban_common import extract_triggers
+except ImportError:
+    def extract_triggers(text: str, max_len: int = 20) -> set:
+        triggers = set()
+        desc_match = re.search(r"^description\s*:\s*(.+)", text, re.MULTILINE)
+        if desc_match:
+            desc = desc_match.group(1)
+            for m in re.finditer(r"['\"「『]([^'\"」』]+)['\"」』]", desc):
+                word = m.group(1).strip()
+                if word and len(word) <= max_len:
+                    triggers.add(word)
+            for part in desc.split(","):
+                part = part.strip().strip("'\"\\").strip()
+                if part and len(part) <= max_len and not part.startswith(("触发", "如", "例", "当")):
+                    triggers.add(part)
+        for m in re.finditer(r"(?:触发|关键词)[：:]\s*(.+)", text):
+            for word in re.split(r"[,，、/]", m.group(1)):
+                word = word.strip().strip("'\"").strip()
+                if word and len(word) <= 30:
+                    triggers.add(word)
         return triggers
-    desc = desc_match.group(1)
-    for m in re.finditer(r"['\"「『]([^'\"」』]+)['\"」』]", desc):
-        word = m.group(1).strip()
-        if word and len(word) <= 20:
-            triggers.add(word)
-    for part in desc.split(","):
-        part = part.strip().strip("'\"\\").strip()
-        if part and len(part) <= 20 and not part.startswith(("触发", "如", "例", "当")):
-            triggers.add(part)
-    return triggers
 
 
 def analyze_trigger_gap(skill_text: str, user_input: str) -> dict | None:
-    """检查用户输入是否含未覆盖的触发词"""
     triggers = extract_triggers(skill_text)
     if not triggers:
-        return None  # 触发词集为空（frontmatter 解析失败或格式非标准），放弃检测
+        return None
     user_lower = user_input.lower()
     for tw in triggers:
         if tw.lower() in user_lower:
-            return None  # 已覆盖
-    # 提取用户输入中的关键词（长度 2-8 汉字或单词）
+            return None
     user_keywords = re.findall(r"[\u4e00-\u9fff]{2,8}|[a-zA-Z]{3,15}", user_input)
     uncovered = [w for w in user_keywords if not any(w in t for t in triggers)]
     if not uncovered:
@@ -49,8 +52,7 @@ def analyze_trigger_gap(skill_text: str, user_input: str) -> dict | None:
 
 
 def analyze_rule_gap(skill_text: str, user_input: str) -> dict | None:
-    """检查用户场景是否有对应规则覆盖"""
-    sections = re.findall(r"(?:^#{1,4}\s+.+$)", skill_text, re.MULTILINE)
+    sections = re.findall(r"^(#{1,4}\s+.+)$", skill_text, re.MULTILINE)
     user_topics = re.findall(r"[\u4e00-\u9fff]{2,10}", user_input)
     covered = any(any(t in s for t in user_topics) for s in sections)
     if covered:
@@ -63,7 +65,6 @@ def analyze_rule_gap(skill_text: str, user_input: str) -> dict | None:
 
 
 def analyze_conflict(skill_text: str) -> list[dict]:
-    """检测 SKILL.md 中可能的规则冲突（'必须' 与 '建议' 在同一主题上并存）"""
     conflicts = []
     must_lines = []
     should_lines = []
@@ -73,7 +74,6 @@ def analyze_conflict(skill_text: str) -> list[dict]:
             must_lines.append((lineno, stripped))
         if re.search(r"(?:建议|可以|考虑)", stripped) and "强制" not in stripped:
             should_lines.append((lineno, stripped))
-    # 寻找同一主题（关键词重叠）的冲突对
     for ml_lineno, ml_text in must_lines:
         ml_keywords = set(re.findall(r"[\u4e00-\u9fff]{2,6}", ml_text))
         for sl_lineno, sl_text in should_lines:
@@ -93,9 +93,7 @@ def analyze_conflict(skill_text: str) -> list[dict]:
 
 
 def analyze_flow_gap(skill_text: str) -> list[dict]:
-    """检查流程步骤是否有缺失"""
     gaps = []
-    # 先按行切分，仅保留含 Step/步骤 的行及其后续段落至下一个标题/Step 前
     lines = skill_text.split("\n")
     step_chunks: list[tuple[int, str]] = []
     current_step = None
@@ -116,8 +114,6 @@ def analyze_flow_gap(skill_text: str) -> list[dict]:
         step_chunks.append((current_step, "\n".join(current_lines)))
 
     for i, (start_line, block) in enumerate(step_chunks):
-        has_input = bool(re.search(r"(?:输入|input|参数|读取|加载)", block, re.IGNORECASE))
-        has_output = bool(re.search(r"(?:输出|output|写入|返回|结果|生成)", block, re.IGNORECASE))
         has_action = bool(re.search(r"(?:执行|运行|调用|检查|扫描|计算|生成)", block, re.IGNORECASE))
         if not has_action and len(block) > 30:
             gaps.append({
@@ -131,7 +127,6 @@ def analyze_flow_gap(skill_text: str) -> list[dict]:
 
 
 def analyze_output_format(skill_text: str) -> list[dict]:
-    """检查输出格式定义是否完整"""
     issues = []
     has_table = "表格" in skill_text or "|" in skill_text
     has_code = "```" in skill_text
@@ -147,11 +142,10 @@ def analyze_output_format(skill_text: str) -> list[dict]:
 
 
 def analyze_version_compat(skill_text: str) -> list[dict]:
-    """检查外部依赖是否标注版本"""
     deps = []
     dep_patterns = [
         r"(?:需要|依赖|安装|pip install|npm install|>=)\s*([\w\-\.]+)",
-        r"arXiv[:\s]*(\d{4}\.\d+)",
+        r"arXiv[:\s]*(\d{4}\.\d{4,5}(?:v\d+)?)",
         r"(?:API|v)\s*(\d+\.\d+)",
     ]
     for pattern in dep_patterns:
@@ -166,9 +160,7 @@ def analyze_version_compat(skill_text: str) -> list[dict]:
     }]
 
 
-# ── 补丁生成 ──
 def generate_patch(skill_dir: Path, gap: dict) -> dict:
-    """根据缺口类型生成具体的编辑建议"""
     sm = skill_dir / "SKILL.md"
     patch = {
         "file": str(sm),
@@ -219,13 +211,13 @@ def generate_patch(skill_dir: Path, gap: dict) -> dict:
     return patch
 
 
-# ── 主入口 ──
 def main():
-    if len(sys.argv) < 2:
-        print(json.dumps({"error": "用法: python evo_skill_patcher.py <skill_dir> [--context <json_file>]"}, ensure_ascii=False))
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="EvoSkill 失败驱动技能修补器")
+    parser.add_argument("skill_dir", help="目标 skill 目录路径")
+    parser.add_argument("--context", default=None, help="失败上下文 JSON 文件路径；不传则从 stdin 读取")
+    args = parser.parse_args()
 
-    sd = Path(sys.argv[1]).resolve()
+    sd = Path(args.skill_dir).resolve()
     sm = sd / "SKILL.md"
 
     if not sm.exists():
@@ -234,14 +226,11 @@ def main():
 
     skill_text = sm.read_text(encoding="utf-8")
 
-    # 加载失败上下文
     context = {}
-    if "--context" in sys.argv:
-        idx = sys.argv.index("--context")
-        if idx + 1 < len(sys.argv):
-            ctx_path = Path(sys.argv[idx + 1])
-            if ctx_path.exists():
-                context = json.loads(ctx_path.read_text(encoding="utf-8"))
+    if args.context:
+        ctx_path = Path(args.context)
+        if ctx_path.exists():
+            context = json.loads(ctx_path.read_text(encoding="utf-8"))
     else:
         try:
             stdin_data = sys.stdin.read().strip()
@@ -253,7 +242,6 @@ def main():
     user_input = context.get("user_input", context.get("error", context.get("feedback", "")))
     error_output = context.get("output", context.get("error_output", ""))
 
-    # 分析缺口
     all_gaps: list[dict] = []
 
     if user_input:
@@ -276,7 +264,6 @@ def main():
     version_issues = analyze_version_compat(skill_text)
     all_gaps.extend(version_issues)
 
-    # 生成补丁
     patches = [generate_patch(sd, g) for g in all_gaps]
 
     report = {

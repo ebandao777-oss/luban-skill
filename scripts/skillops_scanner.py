@@ -4,16 +4,32 @@ SkillOps 工具化扫描器 —— 对技能目录做结构化静态检查。
 用法: python skillops_scanner.py <skill_dir>
 输出: JSON 诊断报告。
 """
-import sys, json, re
+import sys, json, re, argparse
 from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import URLError
-import socket
+
+try:
+    from luban_common import parse_frontmatter
+except ImportError:
+    def parse_frontmatter(text: str) -> dict:
+        if not text.startswith("---"):
+            return {}
+        parts = text.split("---", 2)
+        if len(parts) < 3:
+            return {}
+        yb = parts[1].strip()
+        result = {}
+        for field in ["name", "description"]:
+            m = re.search(rf"^{field}\s*:\s*(.+)", yb, re.MULTILINE)
+            if m:
+                result[field] = m.group(1).strip()
+        return result
 
 URL_TIMEOUT = 10
 HEADERS = {"User-Agent": "SkillOps-Scanner/1.0"}
 
-# ── YAML frontmatter 检查 ──
+
 def check_frontmatter(filepath: Path) -> list[dict]:
     issues = []
     try:
@@ -39,7 +55,7 @@ def check_frontmatter(filepath: Path) -> list[dict]:
         issues.append({"file": str(filepath), "severity": "warning", "issue": "name 含空格"})
     return issues
 
-# ── 路径断裂检查 ──
+
 def check_paths(skill_dir: Path) -> list[dict]:
     issues = []
     sm = skill_dir / "SKILL.md"
@@ -52,10 +68,10 @@ def check_paths(skill_dir: Path) -> list[dict]:
         target = (skill_dir / url).resolve()
         if not target.exists():
             issues.append({"file": str(sm), "severity": "high",
-                           "issue": f"断裂: [{link_text}]({url}) → {target} 不存在", "location": url})
+                           "issue": f"断裂: [{link_text}]({url}) -> {target} 不存在", "location": url})
     return issues
 
-# ── 引用链分析 ──
+
 def check_ref_chain(skill_dir: Path) -> dict:
     sm = skill_dir / "SKILL.md"
     ref_dir = skill_dir / "references"
@@ -76,7 +92,7 @@ def check_ref_chain(skill_dir: Path) -> dict:
             result["missing"].append(c)
     return result
 
-# ── 外部链接检查 ──
+
 def check_urls(skill_dir: Path) -> list[dict]:
     issues = []
     sm = skill_dir / "SKILL.md"
@@ -90,7 +106,8 @@ def check_urls(skill_dir: Path) -> list[dict]:
     ref_dir = skill_dir / "references"
     if ref_dir.exists():
         for rf in ref_dir.rglob("*.md"):
-            for _, url in re.findall(r"\[([^\]]*)\]\(([^\)]+)\)", rf.read_text(encoding="utf-8")):
+            for _, url in re.findall(r"\[([^\]]*)\]\(([^\)]+)\)",
+                                     rf.read_text(encoding="utf-8")):
                 if url.startswith("http"):
                     urls.add(url)
     for url in sorted(urls):
@@ -103,17 +120,15 @@ def check_urls(skill_dir: Path) -> list[dict]:
         except URLError as e:
             issues.append({"file": "external", "severity": "warning",
                            "issue": f"不可达: {url} ({e.reason})"})
-        except socket.timeout:
-            issues.append({"file": "external", "severity": "warning",
-                           "issue": f"超时: {url}"})
     return issues
 
-# ── 主入口 ──
+
 def main():
-    if len(sys.argv) < 2:
-        print(json.dumps({"error": "用法: python skillops_scanner.py <skill_dir>"}, ensure_ascii=False))
-        sys.exit(1)
-    sd = Path(sys.argv[1]).resolve()
+    parser = argparse.ArgumentParser(description="SkillOps 工具化扫描器")
+    parser.add_argument("skill_dir", help="目标 skill 目录路径")
+    args = parser.parse_args()
+
+    sd = Path(args.skill_dir).resolve()
     if not sd.exists():
         print(json.dumps({"error": f"目录不存在: {sd}"}, ensure_ascii=False))
         sys.exit(1)
@@ -121,14 +136,16 @@ def main():
     if not sm.exists():
         print(json.dumps({"error": f"SKILL.md 不存在: {sm}"}, ensure_ascii=False))
         sys.exit(1)
+
     report = {
         "skill_dir": str(sd),
-        "frontmatter": check_frontmatter(sd / "SKILL.md"),
+        "frontmatter": check_frontmatter(sm),
         "broken_paths": check_paths(sd),
         "reference_chain": check_ref_chain(sd),
         "external_links": check_urls(sd),
     }
     print(json.dumps(report, ensure_ascii=False, indent=2))
+
 
 if __name__ == "__main__":
     main()

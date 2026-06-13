@@ -6,52 +6,53 @@ CASCADE 领域知识自动更新器 —— 扫描外部引用、检测过时、�
       --output: 更新建议输出目录，默认 stdout JSON
 输出: JSON 过时引用报告，含搜索查询建议。
 """
-import sys, json, re, os
+import sys, json, re, os, argparse
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
-# ── 北京时间 ──
-CST = timezone(timedelta(hours=8))
+try:
+    from zoneinfo import ZoneInfo
+    CST = ZoneInfo("Asia/Shanghai")
+except Exception:
+    CST = timezone(timedelta(hours=8))
 
-# ── 引用解析 ──
+
 def parse_arxiv_refs(text: str) -> list[dict]:
-    """提取 arXiv ID 及其上下文"""
     refs = []
     for m in re.finditer(r"arXiv[:\s]*(\d{4}\.\d{4,5}(?:v\d+)?)", text, re.IGNORECASE):
-        refs.append({"type": "arxiv", "id": m.group(1), "context": m.group(0).strip(), "line": text[:m.start()].count("\n") + 1})
+        refs.append({"type": "arxiv", "id": m.group(1), "context": m.group(0).strip(),
+                     "line": text[:m.start()].count("\n") + 1})
     return refs
 
 
 def parse_url_refs(text: str) -> list[dict]:
-    """提取外部 URL 及其上下文"""
     refs = []
     for m in re.finditer(r"\[([^\]]*)\]\((https?://[^\)]+)\)", text):
         label = m.group(1).strip()
         url = m.group(2).strip()
-        refs.append({"type": "url", "label": label, "url": url, "line": text[:m.start()].count("\n") + 1})
+        refs.append({"type": "url", "label": label, "url": url,
+                     "line": text[:m.start()].count("\n") + 1})
     return refs
 
 
 def parse_version_refs(text: str) -> list[dict]:
-    """提取版本号引用（API vX, 工具版本等）"""
     refs = []
     for m in re.finditer(r"(?:[Vv]ersion|[Vv])\s*(\d+\.\d+(?:\.\d+)?)", text):
-        refs.append({"type": "version", "version": m.group(1), "context": m.group(0).strip(), "line": text[:m.start()].count("\n") + 1})
+        refs.append({"type": "version", "version": m.group(1), "context": m.group(0).strip(),
+                     "line": text[:m.start()].count("\n") + 1})
     return refs
 
 
 def parse_standard_refs(text: str) -> list[dict]:
-    """提取标准/规范引用（RFC, ISO 等）"""
     refs = []
     for pattern, label in [(r"RFC[:\s]*(\d+)", "RFC"), (r"ISO[:\s]*(\d+(?:[:/-]\d+)?)", "ISO")]:
         for m in re.finditer(pattern, text, re.IGNORECASE):
-            refs.append({"type": "standard", "standard": f"{label} {m.group(1)}", "line": text[:m.start()].count("\n") + 1})
+            refs.append({"type": "standard", "standard": f"{label} {m.group(1)}",
+                         "line": text[:m.start()].count("\n") + 1})
     return refs
 
 
-# ── 文件时间获取 ──
 def get_file_mtime(filepath: Path) -> datetime | None:
-    """获取文件的最后修改时间（CST）"""
     try:
         ts = os.path.getmtime(str(filepath))
         return datetime.fromtimestamp(ts, tz=CST)
@@ -60,12 +61,12 @@ def get_file_mtime(filepath: Path) -> datetime | None:
 
 
 def get_git_last_modified(filepath: Path) -> datetime | None:
-    """尝试从 git 获取文件最后提交时间，失败时回退到文件系统 mtime"""
     import subprocess
     try:
         result = subprocess.run(
             ["git", "-C", str(filepath.parent), "log", "-1", "--format=%at", "--", filepath.name],
             capture_output=True, text=True, timeout=5,
+            encoding="utf-8", errors="replace",
         )
         if result.returncode == 0 and result.stdout.strip():
             ts = int(result.stdout.strip())
@@ -75,9 +76,7 @@ def get_git_last_modified(filepath: Path) -> datetime | None:
     return get_file_mtime(filepath)
 
 
-# ── 过时检测 ──
 def check_staleness(skill_dir: Path, threshold_days: int) -> dict:
-    """扫描所有文件，检测过时引用"""
     now = datetime.now(tz=CST)
     cutoff = now - timedelta(days=threshold_days)
 
@@ -91,7 +90,6 @@ def check_staleness(skill_dir: Path, threshold_days: int) -> dict:
     stale_refs = []
     fresh_refs = []
 
-    # arxiv refs
     for ref in parse_arxiv_refs(skill_text):
         last_updated = sm_mtime
         ref["last_updated"] = last_updated.isoformat() if last_updated else "unknown"
@@ -104,7 +102,6 @@ def check_staleness(skill_dir: Path, threshold_days: int) -> dict:
             ref["status"] = "fresh"
             fresh_refs.append(ref)
 
-    # url refs
     for ref in parse_url_refs(skill_text):
         last_updated = sm_mtime
         ref["last_updated"] = last_updated.isoformat() if last_updated else "unknown"
@@ -117,7 +114,6 @@ def check_staleness(skill_dir: Path, threshold_days: int) -> dict:
             ref["status"] = "fresh"
             fresh_refs.append(ref)
 
-    # references/ 文件
     ref_dir = skill_dir / "references"
     if ref_dir.exists():
         for ref_file in ref_dir.rglob("*"):
@@ -126,7 +122,6 @@ def check_staleness(skill_dir: Path, threshold_days: int) -> dict:
             rel = str(ref_file.relative_to(skill_dir)).replace("\\", "/")
             mtime = get_git_last_modified(ref_file)
             file_text = ref_file.read_text(encoding="utf-8")
-            # extract arXiv refs from reference files
             for ar in parse_arxiv_refs(file_text):
                 ar["source_file"] = rel
                 ar["last_updated"] = mtime.isoformat() if mtime else "unknown"
@@ -139,7 +134,6 @@ def check_staleness(skill_dir: Path, threshold_days: int) -> dict:
                     ar["status"] = "fresh"
                     fresh_refs.append(ar)
 
-    # version refs
     for ref in parse_version_refs(skill_text):
         ref["last_updated"] = sm_mtime.isoformat() if sm_mtime else "unknown"
         ref["days_since"] = (now - sm_mtime).days if sm_mtime else -1
@@ -151,7 +145,6 @@ def check_staleness(skill_dir: Path, threshold_days: int) -> dict:
             ref["status"] = "fresh"
             fresh_refs.append(ref)
 
-    # standard refs
     for ref in parse_standard_refs(skill_text):
         ref["last_updated"] = sm_mtime.isoformat() if sm_mtime else "unknown"
         ref["days_since"] = (now - sm_mtime).days if sm_mtime else -1
@@ -177,9 +170,7 @@ def check_staleness(skill_dir: Path, threshold_days: int) -> dict:
     }
 
 
-# ── 更新建议生成 ──
 def generate_update_suggestions(report: dict) -> list[dict]:
-    """为每个过时引用生成更新建议"""
     suggestions = []
     for ref in report.get("stale_refs", []):
         sug = {
@@ -205,30 +196,30 @@ def generate_update_suggestions(report: dict) -> list[dict]:
 
 
 def output_update_script(skill_dir: Path, suggestions: list[dict], output_dir: Path | None = None) -> str:
-    """生成可执行的更新指引脚本（Markdown 格式）"""
+    now_str = datetime.now(tz=CST).strftime("%Y-%m-%d %H:%M:%S")
     lines = [
-        f"# CASCADE 知识更新指引",
-        f"",
+        "# CASCADE 知识更新指引",
+        "",
         f"**技能目录**：{skill_dir}",
-        f"**生成时间**：{datetime.now(tz=CST).strftime('%Y-%m-%d %H:%M:%S')}",
+        f"**生成时间**：{now_str}",
         f"**过时引用数**：{len(suggestions)}",
-        f"",
+        "",
         "---",
         "",
     ]
     for i, s in enumerate(suggestions, 1):
         lines.append(f"## {i}. {s['ref_id']}（{s['type']}，{s['days_since']} 天未更新）")
-        lines.append(f"")
+        lines.append("")
         lines.append(f"- **来源文件**：{s['source_file']}")
         lines.append(f"- **操作**：{s['action']}")
         lines.append(f"- **指令**：`{s['update_instruction']}`")
-        lines.append(f"")
+        lines.append("")
         lines.append(f"**落地方案**：更新后追加到 `{s['source_file']}`，格式：")
-        lines.append(f"```markdown")
-        lines.append(f"## [{datetime.now().strftime('%Y-%m-%d')}] CASCADE 自动更新：{s['ref_id']}")
-        lines.append(f"")
-        lines.append(f"[最新内容摘要]")
-        lines.append(f"```")
+        lines.append("```markdown")
+        lines.append(f"## [{datetime.now(tz=CST).strftime('%Y-%m-%d')}] CASCADE 自动更新：{s['ref_id']}")
+        lines.append("")
+        lines.append("[最新内容摘要]")
+        lines.append("```")
         lines.append("")
 
     content = "\n".join(lines)
@@ -241,37 +232,24 @@ def output_update_script(skill_dir: Path, suggestions: list[dict], output_dir: P
     return content
 
 
-# ── 主入口 ──
 def main():
-    if len(sys.argv) < 2:
-        print(json.dumps({"error": "用法: python cascade_updater.py <skill_dir> [--threshold <days>] [--output <dir>]"}, ensure_ascii=False))
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="CASCADE 领域知识自动更新器")
+    parser.add_argument("skill_dir", help="目标 skill 目录路径")
+    parser.add_argument("--threshold", type=int, default=90, help="过时阈值天数，默认 90")
+    parser.add_argument("--output", default=None, help="更新建议输出目录，默认 stdout JSON")
+    args = parser.parse_args()
 
-    sd = Path(sys.argv[1]).resolve()
-    threshold = 90
-    output_dir = None
-
-    if "--threshold" in sys.argv:
-        idx = sys.argv.index("--threshold")
-        if idx + 1 < len(sys.argv):
-            try:
-                threshold = int(sys.argv[idx + 1])
-            except ValueError:
-                pass
-    if "--output" in sys.argv:
-        idx = sys.argv.index("--output")
-        if idx + 1 < len(sys.argv):
-            output_dir = Path(sys.argv[idx + 1])
-
-    report = check_staleness(sd, threshold)
+    sd = Path(args.skill_dir).resolve()
+    report = check_staleness(sd, args.threshold)
     if "error" in report:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         sys.exit(1)
+
     suggestions = generate_update_suggestions(report)
     report["suggestions"] = suggestions
 
-    if output_dir:
-        guide_path = output_update_script(sd, suggestions, output_dir)
+    if args.output:
+        guide_path = output_update_script(sd, suggestions, Path(args.output))
         report["update_guide"] = guide_path
 
     print(json.dumps(report, ensure_ascii=False, indent=2))

@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
 """
-Sentinel —— luban 内嵌第 6 模块（Phase 0.3）。
-对目标 skill 的 scripts/ + references/ 做正则安全扫描，输出扣分记录到 diagnostics.tsv。
+Sentinel —— luban 内嵌安全审计模块（Phase 0.3）。
+对目标 skill 的 scripts/ + references/ 做正则安全扫描，输出 JSON 评分报告。
 
 用法：
     python security_audit.py <skill_dir> [--diagnostics <path>]
 
-输出格式（追加到 diagnostics.tsv）：
-    模块\t维度\t扣分\t文件\t行号\t详情
+输出格式（JSON）：
+    包含 5 类 Sentinel 子分（0-2 评分制）、汇总和命中详情。
 """
 
 import os
 import re
 import sys
+import json
 import argparse
-
-# ──────────── 检测规则 ────────────
+from collections import defaultdict
 
 RULES = [
-    # 类别 1: 恶意指令
     {
         "category": "恶意指令",
         "dim": "dim10",
@@ -34,10 +33,7 @@ RULES = [
             (r'\breg\s+delete\b',      "reg delete 注册表删除"),
             (r'\bkill\s+-9\b',         "kill -9 强制杀进程"),
         ],
-        "deduction": 2,  # 每类 -2
-        "cap": 4,        # 上限 -4
     },
-    # 类别 2: 硬编码凭据
     {
         "category": "硬编码凭据",
         "dim": "dim10",
@@ -48,27 +44,21 @@ RULES = [
             (r'(?i)secret\s*[=:]\s*["\'][a-zA-Z0-9_\-]{6,}', "secret 明文赋值"),
             (r'-----BEGIN\s+(RSA|EC|DSA|OPENSSH)?\s*PRIVATE KEY-----', "私钥明文嵌入"),
         ],
-        "deduction": 2,  # 每处 -2
-        "cap": 4,
     },
-    # 类别 3: Prompt 注入
     {
         "category": "Prompt 注入",
         "dim": "dim10",
         "patterns": [
-            (r'(?i)\bDAN\b',                                            "DAN 模式关键词"),
-            (r'(?i)jailbreak',                                          "jailbreak 关键词"),
-            (r'(?i)simulate\s+(that\s+)?(you\s+are|being)',           "模拟角色扮演注入"),
-            (r'(?i)system\s+override',                                 "系统指令覆盖"),
+            (r'(?i)\bDAN\b', "DAN 模式关键词"),
+            (r'(?i)jailbreak', "jailbreak 关键词"),
+            (r'(?i)simulate\s+(that\s+)?(you\s+are|being)', "模拟角色扮演注入"),
+            (r'(?i)system\s+override', "系统指令覆盖"),
             (r'(?i)ignore\s+(all\s+)?(previous|above|prior).*instruction', "忽略之前指令"),
-            (r'(?i)developer\s*mode',                                  "developer mode 诱导"),
-            (r'(?i)roleplay\s+as',                                     "角色扮演注入"),
+            (r'(?i)developer\s*mode', "developer mode 诱导"),
+            (r'(?i)roleplay\s+as', "角色扮演注入"),
             (r'(?i)you\s+are\s+now\s+.*(free|unrestricted|unlimited)', "解除限制注入"),
         ],
-        "deduction": 2,  # 每处 -2
-        "cap": 2,        # 不设累计上限（单处即-2）
     },
-    # 类别 4: 数据外泄
     {
         "category": "数据外泄",
         "dim": "dim10",
@@ -80,10 +70,7 @@ RULES = [
             (r'(?i)curl\s+.*\b(upload|post|put)\b', "curl 上传数据"),
             (r'(?i)scp\b',                           "SCP 文件传输"),
         ],
-        "deduction": 2,
-        "cap": 2,
     },
-    # 类别 5: 权限越权
     {
         "category": "权限越权",
         "dim": "dim10",
@@ -94,18 +81,13 @@ RULES = [
             (r'\bsu\s+-',                 "su 切换用户"),
             (r'\bicacls\b',               "icacls Windows 权限修改"),
         ],
-        "deduction": 2,
-        "cap": 2,
     },
 ]
 
-# ──────────── 核心逻辑 ────────────
 
 def find_text_files(skill_dir: str) -> list[str]:
-    """收集 skill 目录下所有文本文件。"""
     text_exts = {".md", ".py", ".sh", ".json", ".yaml", ".yml", ".toml", ".cfg", ".txt", ".tsv", ".csv"}
     files = []
-    # 仅扫描 scripts/ 和 references/，排除 SKILL.md（文档层描述非可执行代码）
     scan_dirs = [
         os.path.join(skill_dir, "scripts"),
         os.path.join(skill_dir, "references"),
@@ -119,16 +101,14 @@ def find_text_files(skill_dir: str) -> list[str]:
                 ext = os.path.splitext(fname)[1].lower()
                 if ext in text_exts:
                     fp = os.path.join(root, fname)
-                    # 排除自身（正则模式含触发词，非实际漏洞）
                     if os.path.abspath(fp) == os.path.abspath(__file__):
                         continue
                     files.append(fp)
     return files
 
 
-def scan_file(filepath: str) -> list[tuple]:
-    """对单文件执行全部规则扫描，返回命中列表。"""
-    hits = []
+def scan_file(filepath: str) -> dict[str, list[dict]]:
+    hits: dict[str, list[dict]] = defaultdict(list)
     try:
         with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
             lines = f.readlines()
@@ -136,81 +116,102 @@ def scan_file(filepath: str) -> list[tuple]:
         return hits
 
     for rule in RULES:
+        cat = rule["category"]
         for pattern, desc in rule["patterns"]:
             for i, line in enumerate(lines, 1):
                 if re.search(pattern, line):
-                    hits.append((
-                        "Sentinel",
-                        rule["dim"],
-                        rule["deduction"],
-                        filepath,
-                        i,
-                        f"[{rule['category']}] {desc}: {line.strip()[:120]}"
-                    ))
+                    hits[cat].append({
+                        "category": cat,
+                        "dim": rule["dim"],
+                        "file": filepath,
+                        "line": i,
+                        "detail": f"[{cat}] {desc}: {line.strip()[:120]}"
+                    })
     return hits
 
 
-def apply_caps(hits: list[tuple]) -> list[tuple]:
-    """按类别上限合并扣分。同类命中仅取 cap 内条目。"""
-    from collections import defaultdict
-
-    cat_hits: dict[str, list[tuple]] = defaultdict(list)
-    for h in hits:
-        category = h[5].split("]")[0][1:] if "]" in h[5] else h[0]
-        cat_hits[category].append(h)
-
-    capped = []
+def compute_sentinel_score(cat_hits: dict[str, list[dict]]) -> dict:
+    """按 SKILL.md 定义的 0-2 评分制计算各类别子分。
+    每类：0 命中 = 2, 1 处 = 1, ≥2 处 = 0; 5 类取均值。
+    """
+    category_scores = {}
     for rule in RULES:
         cat = rule["category"]
-        items = cat_hits.get(cat, [])
-        capped.extend(items[: rule["cap"] // rule["deduction"] + 1])
-    return capped
+        hit_count = len(cat_hits.get(cat, []))
+        if hit_count == 0:
+            score = 2.0
+        elif hit_count == 1:
+            score = 1.0
+        else:
+            score = 0.0
+        category_scores[cat] = {"hit_count": hit_count, "score": score}
+
+    avg_score = sum(v["score"] for v in category_scores.values()) / len(category_scores) if category_scores else 2.0
+    total_hits = sum(v["hit_count"] for v in category_scores.values())
+
+    return {
+        "category_scores": category_scores,
+        "sentinel_sub_score": round(avg_score, 2),
+        "total_hits": total_hits,
+    }
 
 
-def write_diagnostics(hits: list[tuple], diag_path: str):
-    """追加写入 diagnostics.tsv。"""
+def write_diagnostics(hits: dict[str, list[dict]], score_result: dict, diag_path: str):
     os.makedirs(os.path.dirname(diag_path), exist_ok=True)
-    with open(diag_path, "a", encoding="utf-8") as f:
-        for h in hits:
-            f.write("\t".join(str(x) for x in h) + "\n")
+    with open(diag_path, "w", encoding="utf-8") as f:
+        f.write("模块\t维度\t子分\t文件\t行号\t详情\n")
+        for cat, items in hits.items():
+            sub_score = score_result["category_scores"].get(cat, {}).get("score", 2)
+            for item in items:
+                f.write(f"Sentinel\tdim10\t{sub_score}\t{item['file']}\t{item['line']}\t{item['detail']}\n")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Sentinel")
+    parser = argparse.ArgumentParser(description="Sentinel 安全审计")
     parser.add_argument("skill_dir", help="目标 skill 目录路径")
     parser.add_argument("--diagnostics", default=None, help="diagnostics.tsv 路径")
     args = parser.parse_args()
 
     if not os.path.isdir(args.skill_dir):
-        print(f"[Sentinel] 错误：目录不存在 {args.skill_dir}", file=sys.stderr)
+        result = {"status": "error", "error": f"目录不存在: {args.skill_dir}"}
+        print(json.dumps(result, ensure_ascii=False, indent=2))
         sys.exit(1)
 
     files = list(set(find_text_files(args.skill_dir)))
-    print(f"[Sentinel] 扫描 {len(files)} 个文件")
 
-    all_hits = []
+    all_cat_hits: dict[str, list[dict]] = defaultdict(list)
     for fp in files:
-        hits = scan_file(fp)
-        all_hits.extend(hits)
-        if hits:
-            rel = os.path.relpath(fp, args.skill_dir)
-            print(f"  {rel}: {len(hits)} 处命中")
+        file_hits = scan_file(fp)
+        for cat, items in file_hits.items():
+            all_cat_hits[cat].extend(items)
 
-    capped_hits = apply_caps(all_hits)
+    score_result = compute_sentinel_score(all_cat_hits)
 
-    # 汇总
-    from collections import Counter
-    cat_counts = Counter(h[5].split("]")[0][1:] if "]" in h[5] else "" for h in capped_hits)
-    total_deduction = sum(h[2] for h in capped_hits)
-    print(f"\n[Sentinel] 汇总：共 {len(all_hits)} 处命中，上限后 {len(capped_hits)} 条，累计扣分 {total_deduction}")
-    for cat, count in cat_counts.items():
-        print(f"  {cat}: {count} 条")
+    hit_details = []
+    for cat in sorted(all_cat_hits):
+        for item in all_cat_hits[cat]:
+            hit_details.append({
+                "category": cat,
+                "file": item["file"],
+                "line": item["line"],
+                "detail": item["detail"],
+            })
 
-    if args.diagnostics and capped_hits:
-        write_diagnostics(capped_hits, args.diagnostics)
-        print(f"\n[Sentinel] 已写入 {args.diagnostics}")
+    report = {
+        "status": "ok",
+        "skill_dir": os.path.abspath(args.skill_dir),
+        "files_scanned": len(files),
+        "total_hits": score_result["total_hits"],
+        "sentinel_sub_score": score_result["sentinel_sub_score"],
+        "category_scores": score_result["category_scores"],
+        "hit_details": hit_details,
+    }
 
-    sys.exit(0 if total_deduction == 0 else 1)
+    if args.diagnostics and all_cat_hits:
+        write_diagnostics(all_cat_hits, score_result, args.diagnostics)
+
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    sys.exit(0)
 
 
 if __name__ == "__main__":
