@@ -1,12 +1,7 @@
 ---
-AIGC:
-    Label: "1"
-    ContentProducer: 001191440300708461136T1XGW3
-    ProduceID: f114db32c8f49bbd4c4c544cd9de808d_a9366c4e673011f1a99c5254007bceed
-    ReservedCode1: Wmbzv9VszBCW1EDU02Yst2QtaA/yor14vv+TumxjAQNRDsWsuo1bOMqPInPRRPbUdvHyUg5eD1QWjkJQfp6U3pmaPcJW8TpnXsz1mS7BNiUYffBVGDp85nB5VCXDjukfoRgR18WgDh88eKYHsn86guyLMQn0mg5aBJoJog21SPt1Auzvz9bNd+BzB7c=
-    ContentPropagator: 001191440300708461136T1XGW3
-    PropagateID: f114db32c8f49bbd4c4c544cd9de808d_a9366c4e673011f1a99c5254007bceed
-    ReservedCode2: Wmbzv9VszBCW1EDU02Yst2QtaA/yor14vv+TumxjAQNRDsWsuo1bOMqPInPRRPbUdvHyUg5eD1QWjkJQfp6U3pmaPcJW8TpnXsz1mS7BNiUYffBVGDp85nB5VCXDjukfoRgR18WgDh88eKYHsn86guyLMQn0mg5aBJoJog21SPt1Auzvz9bNd+BzB7c=
+name: luban-skill
+description: "鲁班.Skill（luban Skill）：工业级智能体技能优化器。当用户提及以下关键词时调用：“优化skill”、“skill评分”、“自动优化”、“auto optimize”、“skill质量检查”、“小鲁班”、“luban”、“优化技能”、“帮我改skill”、“skill怎么样”、“提升skill质量”、“skill review”、“skill打分”。"
+version: ""
 ---
 
 
